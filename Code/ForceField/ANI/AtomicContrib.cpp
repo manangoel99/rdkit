@@ -132,14 +132,215 @@ double ANIAtomContrib::getEnergy(Eigen::ArrayXXd &aev) const {
   return this->ANIAtomContrib::forwardProp(row) + this->d_selfEnergy;
 }
 
-void ANIAtomContrib::getGrad(double *pos, double *grad) const {}
+void ANIAtomContrib::getGrad(double *pos, double *grad) const {
+  auto aev = RDKit::Descriptors::ANI::AtomicEnvironmentVector(
+      pos, this->d_speciesVec, this->d_numAtoms, &(this->d_aevParams));
+
+  MatrixXd row = aev.row(this->d_atomIdx).matrix();
+  std::vector<MatrixXd> hiddenStates;
+  std::vector<MatrixXd> grads;
+  for (unsigned int modelNo = 0; modelNo < this->d_weights.size(); modelNo++) {
+    auto temp = row;
+    for (unsigned int layer = 0; layer < this->d_weights[modelNo].size();
+         layer++) {
+      temp = ((this->d_weights[modelNo][layer] * temp) +
+              this->d_biases[modelNo][layer])
+                 .eval();
+      hiddenStates.push_back(temp);
+      if (layer < this->d_weights[modelNo].size() - 1) {
+        Utils::CELU(temp, 0.1);
+      }
+    }
+    MatrixXd gradient = MatrixXd::Identity(this->d_weights[modelNo][0].cols(),
+                                           this->d_weights[modelNo][0].cols());
+    for (unsigned int i = 0; i < this->d_weights[modelNo].size() - 1; i++) {
+      Utils::CELUGrad(hiddenStates[i], 0.1);
+      auto k = hiddenStates[i].asDiagonal() * this->d_weights[modelNo][i];
+      gradient = (k * gradient).eval();
+    }
+    gradient = this->d_weights[modelNo][this->d_weights[modelNo].size() - 1] *
+               gradient;
+    grads.push_back(gradient);
+    hiddenStates.clear();
+  }
+  MatrixXd final_grad = MatrixXd::Zero(row.rows(), row.cols());
+  for (auto i : grads) {
+    final_grad += i;
+  }
+  final_grad = final_grad / this->d_ensembleSize;
+
+  // AEV derivative w.r.t position
+  MatrixXd radialPart(4, 16);
+  unsigned int col = 0;
+  for (int i = 0; i < 64; i++) {
+    radialPart(i / 16, col) = row(i, 0);
+    col++;
+    if (i % 16 == 0) {
+      col = 0;
+    }
+  }
+  auto numAtoms = this->d_numAtoms;
+  auto species = this->d_speciesVec;
+  ArrayXXd coordinates(numAtoms, 3);
+  for (unsigned int i = 0; i < numAtoms; i++) {
+    coordinates.row(i) << pos[3 * i], pos[3 * i + 1], pos[3 * i + 2];
+  }
+  // Fetch pairs of atoms which are neigbours which lie within the cutoff
+  // distance 5.2 Angstroms. The constant was obtained by authors of torchANI
+  ArrayXi atomIndex12;
+  RDKit::Descriptors::ANI::NeighborPairs(&coordinates, &species, 5.2, numAtoms,
+                                         &atomIndex12);
+  ArrayXXd selectedCoordinates(atomIndex12.rows(), 3);
+  RDKit::Descriptors::ANI::IndexSelect(&selectedCoordinates, &coordinates,
+                                       atomIndex12, 0);
+
+  // Vectors between pairs of atoms that lie in each other's neighborhoods
+  unsigned int numPairs = selectedCoordinates.rows() / 2;
+  ArrayXXd vec(numPairs, 3);
+  for (unsigned int i = 0; i < numPairs; i++) {
+    vec.row(i) =
+        selectedCoordinates.row(i) - selectedCoordinates.row(i + numPairs);
+  }
+
+  ArrayXXd distances = vec.matrix().rowwise().norm().array();
+
+  ArrayXXi species12(2, numPairs);
+  ArrayXXi species12Flipped(2, numPairs);
+  ArrayXXi atomIndex12Unflattened(2, numPairs);
+  for (unsigned int i = 0; i < numPairs; i++) {
+    species12(0, i) = species(atomIndex12(i));
+    species12(1, i) = species(atomIndex12(i + numPairs));
+
+    species12Flipped(1, i) = species(atomIndex12(i));
+    species12Flipped(0, i) = species(atomIndex12(i + numPairs));
+
+    atomIndex12Unflattened(0, i) = atomIndex12(i);
+    atomIndex12Unflattened(1, i) = atomIndex12(i + numPairs);
+  }
+  std::map<int, std::vector<int>> addedMapping;
+  for (int i = 4 * this->d_atomIdx; i < 4 * this->d_atomIdx + 4; i++) {
+    std::vector<int> k;
+    addedMapping.insert(std::make_pair(i, k));
+  }
+  auto index12 = (atomIndex12Unflattened * 4 + species12Flipped).transpose();
+  for (auto idxCol = 0; idxCol < index12.cols(); idxCol++) {
+    for (auto i = 0; i < index12.rows(); i++) {
+      for (auto v = addedMapping.begin(); v != addedMapping.end(); v++) {
+        if (index12(i, idxCol) == v->first) {
+          addedMapping[v->first].push_back(i);
+        }
+      }
+    }
+  }
+  std::vector<ArrayXXd> derivatives;
+  Utils::RadialTerms_d(5.2, derivatives, addedMapping, selectedCoordinates,
+                       &(this->d_aevParams), distances, atomIndex12,
+                       this->d_atomIdx);
+  ArrayXXd RadialJacobian = ArrayXXd::Zero(384, 3);
+  unsigned int idx = 0;
+  for (auto i : derivatives) {
+    for (int j = 0; j < i.rows(); j++) {
+      RadialJacobian.row(idx) << i.row(j);
+      idx++;
+    }
+    // std::cout << i << std::endl;
+    // std::cout << "***************" << std::endl;
+  }
+  // std::cout << RadialJacobian.rows() << " " << RadialJacobian.cols()
+            // << std::endl;
+  // std::cout << final_grad.rows() << " " << final_grad.cols() << std::endl;
+  // std::cout << final_grad.matrix() * RadialJacobian.matrix() << std::endl;
+  // std::cout << Jacobian << std::endl;
+  // std::cout << Jacobian.colwise().sum() << std::endl;
+  // std::cout << "=======================" << std::endl;
+}
 
 namespace Utils {
+
+void RadialTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
+                   std::map<int, std::vector<int>> &addedMapping,
+                   ArrayXXd &selectedCoordinates,
+                   const std::map<std::string, Eigen::ArrayXXd> *params,
+                   ArrayXXd &distances, ArrayXi &atomIndex12,
+                   unsigned int atomIdx) {
+  ArrayXd EtaR = params->find("EtaR")->second;
+  ArrayXd ShfR = params->find("ShfR")->second;
+  auto numPairs = selectedCoordinates.rows() / 2;
+  for (auto i = addedMapping.begin(); i != addedMapping.end(); i++) {
+    auto addedRows = i->second;
+    ArrayXXd der = ArrayXXd::Zero(16, 3);
+    for (auto v : addedRows) {
+      auto idx1 = atomIndex12(v);
+      auto idx2 = atomIndex12(v + numPairs);
+      auto dist = distances(v);
+      auto coord1 = selectedCoordinates.row(v);
+      auto coord2 = selectedCoordinates.row(v + numPairs);
+      int multi = 1;
+      if (atomIdx == idx1) {
+        multi = 1;
+      }
+      if (atomIdx == idx2) {
+        multi = -1;
+      }
+      auto vec = multi * (coord1 - coord2) / dist;
+      for (auto etaIdx = 0; etaIdx < EtaR.size(); etaIdx++) {
+        ArrayXXd term1 = ((ShfR - dist).pow(2) * EtaR(etaIdx) * -1).exp();
+        ArrayXXd term2 =
+            (-M_PI / (2 * cutoff) * std::sin((M_PI * dist / cutoff))) +
+            EtaR(etaIdx) * (ShfR - dist) *
+                (std::cos((M_PI * dist / cutoff)) + 1);
+        auto intermediate = 0.25 * term1 * term2;
+        for (int k = 0; k < intermediate.size(); ++k) {
+          der.row(k) += vec * intermediate(k);
+        }
+      }
+    }
+    derivatives.push_back(der);
+  }
+}
+
+// void RadialTerms_d(double cutoff, ArrayXXd *distances, ArrayXXd
+// &RadialTerms_,
+//                    const std::map<std::string, Eigen::ArrayXXd> *params) {
+// ArrayXd EtaR = params->find("EtaR")->second;
+// ArrayXd ShfR = params->find("ShfR")->second;
+//   RadialTerms_.resize(distances->rows(), ShfR.size() * EtaR.size());
+
+//   for (auto i = 0; i < distances->rows(); i++) {
+//     ArrayXXd calculatedRowVector(1, ShfR.size() * EtaR.size());
+//     unsigned int idx = 0;
+// for (auto etaIdx = 0; etaIdx < EtaR.size(); etaIdx++) {
+//   ArrayXXd term1 =
+//       ((ShfR - (*distances)(i)).pow(2) * EtaR(etaIdx) * -1).exp();
+//   ArrayXXd term2 =
+//       (-M_PI / (2 * cutoff) * std::sin((M_PI * (*distances)(i) /
+//       cutoff))) + EtaR(etaIdx) * (ShfR - (*distances)(i)) *
+//           (std::cos((M_PI * (*distances)(i) / cutoff)) + 1);
+//   auto intermediate = 0.25 * term1 * term2;
+
+//   for (unsigned int j = 0; j < intermediate.size(); j++) {
+//     calculatedRowVector(0, idx + j) = intermediate(j);
+//   }
+//   idx += ShfR.size();
+// }
+//     RadialTerms_.row(i) = calculatedRowVector;
+//   }
+// }
 
 void CELU(MatrixXd &input, double alpha) {
   input = input.unaryExpr([&](double val) {
     return std::max(0.0, val) +
            std::min(alpha * (std::exp(val / alpha) - 1), 0.0);
+  });
+}
+
+void CELUGrad(MatrixXd &input, double alpha) {
+  input = input.unaryExpr([&](double val) {
+    if (val > 0) {
+      return 1.0;
+    } else {
+      return std::exp(val / alpha);
+    }
   });
 }
 

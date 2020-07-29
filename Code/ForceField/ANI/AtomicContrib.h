@@ -79,6 +79,12 @@ class RDKIT_FORCEFIELD_EXPORT ANIAtomContrib : public ForceFieldContrib {
 
 namespace Utils {
 
+void RadialTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
+                   std::map<int, std::vector<int>> &addedMapping,
+                   ArrayXXd &selectedCoordinates,
+                   const std::map<std::string, Eigen::ArrayXXd> *params,
+                   ArrayXXd &distances, ArrayXi &atomIndex12,
+                   unsigned int atomIdx);
 //! CELU activation function
 /*!
   Continuously Differentiable Exponential Linear Unit Activation function
@@ -86,6 +92,8 @@ namespace Utils {
   \param alpha      hyperparameter for CELU
 */
 void CELU(MatrixXd &input, double alpha);
+
+void CELUGrad(MatrixXd &input, double alpha);
 
 /*!
   Load model weights from CSV file

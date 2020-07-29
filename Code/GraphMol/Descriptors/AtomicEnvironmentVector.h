@@ -33,6 +33,26 @@ RDKIT_DESCRIPTORS_EXPORT Eigen::VectorXi GenerateSpeciesVector(
 RDKIT_DESCRIPTORS_EXPORT Eigen::VectorXi GenerateSpeciesVector(
     const int *atomNums, unsigned int numAtoms);
 
+//! Computes pairs of atoms that are neighbors bypassing duplication to make
+//! calculation faster
+/*!
+  \param coordinates  A matrix of size atoms * 3 containing coordinates of each
+  atom
+  \param species      A vector of size atoms containing mapping from atom
+  index to encoding
+  \param cutoff       Maximum distance within which 2 atoms
+  are considered to be neighbours
+  \param atomIndex12  Array in which each column represents pairs of atoms
+
+  \return 2 dimensional array with 2 rows with each column corresponding to a
+  pair of atoms which are neighbours
+*/
+RDKIT_DESCRIPTORS_EXPORT void NeighborPairs(Eigen::ArrayXXd *coordinates,
+                                            const Eigen::VectorXi *species,
+                                            double cutoff,
+                                            unsigned int numAtoms,
+                                            Eigen::ArrayXi *atomIndex12);
+
 //! Calculates torchANI style symmetry functions combining both radial and
 //! angular terms
 /*!
@@ -60,6 +80,39 @@ RDKIT_DESCRIPTORS_EXPORT Eigen::ArrayXXd AtomicEnvironmentVector(
 RDKIT_DESCRIPTORS_EXPORT Eigen::ArrayXXd AtomicEnvironmentVector(
     double *pos, const Eigen::VectorXi &species, unsigned int numAtoms,
     const std::map<std::string, Eigen::ArrayXXd> *params);
+
+//! Constructs a vector with values of another vector at specified indices along
+//! given dimension
+/*!
+  \param vector1    Matrix in which values are to be stored
+  \param vector2    Matrix from which values are to be taken
+  \param index      Array which specifies indices of vector2
+  \param dim        dimension along which indices are to be picked
+
+  \return Matrix containing values at positions specified by index in vector2
+*/
+template <typename Derived>
+RDKIT_DESCRIPTORS_EXPORT void IndexSelect(Eigen::ArrayBase<Derived> *vector1,
+                                          Eigen::ArrayBase<Derived> *vector2,
+                                          Eigen::ArrayXi &index,
+                                          unsigned int dim) {
+  PRECONDITION(vector1 != nullptr && vector2 != nullptr,
+               "Input vectors are NULL");
+  PRECONDITION(dim == 0 || dim == 1,
+               "Only values 0 and 1 are accepted for dim");
+  for (auto i = 0; i < index.size(); i++) {
+    switch (dim) {
+      case 0:
+        vector1->row(i) = vector2->row(index(i));
+        break;
+      case 1:
+        vector1->col(i) = vector2->col(index(i));
+        break;
+      default:
+        throw ValueErrorException("Value of dim must be 0 or 1");
+    }
+  }
+}
 
 }  // namespace ANI
 }  // namespace Descriptors
