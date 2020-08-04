@@ -19,6 +19,33 @@ namespace Descriptors {
 namespace ANI {
 const std::string AtomicEnvironmentVectorVersion = "1.0.0";
 
+RDKIT_DESCRIPTORS_EXPORT void TriuIndex(unsigned int numSpecies, Eigen::ArrayXXi &triuIndices);
+
+//! Calculates the value a continuous smoothening function for a distance such
+//! that values
+// greater than the cutoff give 0
+/*!
+  \param distances A 2 dimensional array of pairwise distances
+  \param cutoff    A double value signifying cutoff distance
+
+  \return 2 dimensional array containing corresponding values computed by cutoff
+  function
+*/
+template <typename Derived>
+RDKIT_DESCRIPTORS_EXPORT Eigen::ArrayXXd CosineCutoff(
+    Eigen::ArrayBase<Derived> *distances, double cutoff) {
+  // Cosine cutoff function assuming all distances are less than the cutoff
+  PRECONDITION(cutoff > 0.0, "Cutoff must be greater than zero");
+  PRECONDITION(((*distances) <= cutoff).count() == distances->size(),
+               "All distances must be less than the cutoff");
+  PRECONDITION(distances != nullptr, "Array of distances is NULL");
+  return 0.5 * ((*distances) * (M_PI / cutoff)).cos() + 0.5;
+}
+
+RDKIT_DESCRIPTORS_EXPORT void TripleByMolecules(
+    Eigen::ArrayXXi *atomIndex12Angular,
+    std::pair<std::vector<int>, Eigen::ArrayXXi> *tripletInfo);
+
 //-------------------------------------------------------
 //! Generates a vector from the molecule containing encoding of each atom
 // such that H -> 0, C -> 1, N -> 2, O -> 3 and all other atoms -> -1

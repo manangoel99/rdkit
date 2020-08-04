@@ -78,7 +78,9 @@ class RDKIT_FORCEFIELD_EXPORT ANIAtomContrib : public ForceFieldContrib {
 };
 
 namespace Utils {
-
+void AngularTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
+                    ArrayXXd &vectors12,
+                    const std::map<std::string, ArrayXXd> *params);
 void RadialTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
                    std::map<int, std::vector<int>> &addedMapping,
                    ArrayXXd &selectedCoordinates,

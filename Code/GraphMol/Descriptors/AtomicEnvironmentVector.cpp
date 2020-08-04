@@ -18,27 +18,6 @@ using namespace Eigen;
 namespace RDKit {
 namespace Descriptors {
 namespace ANI {
-
-//! Calculates the value a continuous smoothening function for a distance such
-//! that values
-// greater than the cutoff give 0
-/*!
-  \param distances A 2 dimensional array of pairwise distances
-  \param cutoff    A double value signifying cutoff distance
-
-  \return 2 dimensional array containing corresponding values computed by cutoff
-  function
-*/
-template <typename Derived>
-ArrayXXd CosineCutoff(ArrayBase<Derived> *distances, double cutoff) {
-  // Cosine cutoff function assuming all distances are less than the cutoff
-  PRECONDITION(cutoff > 0.0, "Cutoff must be greater than zero");
-  PRECONDITION(((*distances) <= cutoff).count() == distances->size(),
-               "All distances must be less than the cutoff");
-  PRECONDITION(distances != nullptr, "Array of distances is NULL");
-  return 0.5 * ((*distances) * (M_PI / cutoff)).cos() + 0.5;
-}
-
 VectorXi GenerateSpeciesVector(const ROMol &mol) {
   // Generate atom species vector as mentioned in torchani
   // H : 0
