@@ -236,7 +236,7 @@ void ANIAtomContrib::getGrad(double *pos, double *grad) const {
   Utils::RadialTerms_d(5.2, derivatives, addedMapping, selectedCoordinates,
                        &(this->d_aevParams), distances, atomIndex12,
                        this->d_atomIdx);
-  ArrayXXd RadialJacobian = ArrayXXd::Zero(384, 3);
+  ArrayXXd RadialJacobian = ArrayXXd::Zero(64, 3);
   unsigned int idx = 0;
   for (auto i : derivatives) {
     for (int j = 0; j < i.rows(); j++) {
@@ -251,6 +251,12 @@ void ANIAtomContrib::getGrad(double *pos, double *grad) const {
       evenCloserIndices(idx) = i;
       idx++;
     }
+  }
+
+  std::vector<std::pair<int, int>> subtractionIndex;
+
+  for (int i = 0; i < evenCloserIndices.size(); i++) {
+    subtractionIndex.push_back(std::make_pair(evenCloserIndices(i), evenCloserIndices(i) + numPairs));
   }
 
   ArrayXXi species12Angular(2, evenCloserIndices.size());
@@ -313,25 +319,53 @@ void ANIAtomContrib::getGrad(double *pos, double *grad) const {
   ArrayXXd vecFlattened(pairIndex12Flattened.size(), 3);
   RDKit::Descriptors::ANI::IndexSelect(&vecFlattened, &vecAngular,
                                        pairIndex12Flattened, 0);
+  ArrayXXi atomIndex12AngularPairs(2, pairIndex12Flattened.size());
+  RDKit::Descriptors::ANI::IndexSelect(&atomIndex12AngularPairs, &atomIndex12Angular, pairIndex12Flattened, 1);
+
+  // for (int i = 0; i < atomIndex12AngularPairs.cols(); i++) {
+  //   std::cout << coordinates.row(atomIndex12AngularPairs(0,i)) - coordinates.row(atomIndex12AngularPairs(1,i)) << std::endl;
+  //   std::cout << vecFlattened.row(i) << std::endl;
+  //   std::cout << "~~~~~~~~~~~~~" << std::endl;
+  // }
+
+  // std::cout << "atomIndex12AngularPairs" << std::endl;
+  // std::cout << atomIndex12AngularPairs << std::endl;
+  // std::cout << "atomIndex12AngularPairs Ended" << std::endl;
+
   ArrayXXd vec12(vecFlattened.rows(), 3);
   for (auto i = 0; i < vecFlattened.rows() / 2; i++) {
     vec12.row(i) = vecFlattened.row(i) * sign12(0, i);
+    if (sign12(0, i) == -1) {
+      auto temp = atomIndex12AngularPairs(0, i);
+      atomIndex12AngularPairs(0, i) = atomIndex12AngularPairs(1, i);
+      atomIndex12AngularPairs(1, i) = temp;
+    }
   }
 
   for (auto i = vecFlattened.rows() / 2; i < vecFlattened.rows(); i++) {
     vec12.row(i) = vecFlattened.row(i) * sign12(1, i - vecFlattened.rows() / 2);
+    if (sign12(1, i - vecFlattened.rows() / 2) == -1) {
+      auto temp = atomIndex12AngularPairs(0, i);
+      atomIndex12AngularPairs(0, i) = atomIndex12AngularPairs(1, i);
+      atomIndex12AngularPairs(1, i) = temp;
+    }
   }
   std::vector<ArrayXXd> angularDerivatives;
-  Utils::AngularTerms_d(3.5, angularDerivatives, vec12, &(this->d_aevParams));
-  std::cout << angularDerivatives.size() << std::endl;
-  std::cout << "=============================================" << std::endl;
-
   ArrayXXi centralAtomIndexArr(centralAtomIndex.size(), 1);
 
   for (size_t i = 0; i < centralAtomIndex.size(); i++) {
     centralAtomIndexArr.row(i) << centralAtomIndex[i];
   }
 
+  Utils::AngularTerms_d(3.5, angularDerivatives, coordinates, vec12, this->d_atomIdx, atomIndex12AngularPairs, centralAtomIndexArr, &(this->d_aevParams));
+  // for (auto i : angularDerivatives) {
+  //   std::cout << i.rows() << " " << i.cols() << std::endl;
+  // }
+  // std::cout << "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" << std::endl;
+  // std::cout << angularDerivatives.size() << std::endl;
+  // std::cout << "=============================================" << std::endl;
+
+  
   ArrayXXi species12Small1(2, pairIndex12.cols());
   ArrayXXi species12Small2(2, pairIndex12.cols());
 
@@ -370,8 +404,46 @@ void ANIAtomContrib::getGrad(double *pos, double *grad) const {
   index = index + (centralAtomIndexArr.array() * 10).array();
 
   std::vector<ArrayXXd> sumDerivatives;
-  sumDerivatives.reserve(10 * numAtoms);
+  for (int i = 0; i < 10 * numAtoms; i++) {
+    sumDerivatives.push_back(ArrayXXd::Zero(32, 3));
+  }
 
+  for (auto idxCol = 0; idxCol < index.cols(); idxCol++) {
+    for (auto i = 0; i < index.rows(); i++) {
+      for (unsigned int j = 0; j < 10 * numAtoms; j++) {
+        if (index(i, idxCol) == (int)j) {
+          sumDerivatives[j] += angularDerivatives[i];
+        }
+      }
+    }
+  }
+  std::vector<ArrayXXd> reqd;
+  reqd.reserve(10);
+  for (int i = 10 * this->d_atomIdx; i < 10 * this->d_atomIdx + 10; i++) {
+    reqd.push_back(sumDerivatives[i]);
+  }
+
+  ArrayXXd AngularJacobian = ArrayXXd::Zero(320, 3);
+  idx = 0;
+  for (auto i : reqd) {
+    for (int j = 0; j < i.rows(); j++) {
+      AngularJacobian.row(idx) << i.row(j);
+      idx++;
+    }
+  }
+  // // std::cout << "AngularJacobian" << std::endl;
+  // // std::cout << AngularJacobian << std::endl;
+
+  ArrayXXd FinalJacobian(384, 3);
+  FinalJacobian << RadialJacobian, AngularJacobian;
+  // // std::cout << FinalJacobian << std::endl;
+
+  // std::cout << final_grad.rows() << " " << final_grad.cols() << std::endl;
+  // std::cout << FinalJacobian.rows() << " " << FinalJacobian.cols() << std::endl;
+  auto gradient = final_grad.matrix() * FinalJacobian.matrix();
+  grad[3 * this->d_atomIdx] = gradient(0);
+  grad[3 * this->d_atomIdx + 1] = gradient(1);
+  grad[3 * this->d_atomIdx + 2] = gradient(2);
 
 }
 
@@ -419,14 +491,19 @@ void RadialTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
   }
 }
 
-void AngularTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
-                    ArrayXXd &vectors12,
+void AngularTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives, ArrayXXd coordinates,
+                    ArrayXXd &vectors12, unsigned int atomIdx, ArrayXXi &atomIndex12Angular, ArrayXXi centralAtomIndex,
                     const std::map<std::string, ArrayXXd> *params) {
   ArrayXd ShfZ = params->find("ShfZ")->second;
   ArrayXd ShfA = params->find("ShfA")->second;
   ArrayXd zeta = params->find("zeta")->second;
   ArrayXd etaA = params->find("etaA")->second;
-  for (int i = 0; i < vectors12.rows() / 2; i++) {
+
+  for (int i = 0; i < centralAtomIndex.size(); i++) {
+    // if (centralAtomIndex(i) != atomIdx) {
+    //   continue;
+    // }
+
     auto vecij = vectors12.matrix().row(i);
     auto vecik = vectors12.matrix().row(i + vectors12.rows() / 2);
 
@@ -434,31 +511,35 @@ void AngularTerms_d(double cutoff, std::vector<ArrayXXd> &derivatives,
     auto Rik = vecik.norm();
 
     auto dotProduct = vecij.dot(vecik);
-
+    auto cutoff_ij = 0.5 * (std::cos(M_PI * Rij / cutoff) + 1);
+    auto cutoff_ik = 0.5 * (std::cos(M_PI * Rik / cutoff) + 1);
     auto thetaijk = std::acos(0.95 * dotProduct / (Rij * Rik));
     unsigned int idx = 0;
+
+    auto idx_i = atomIndex12Angular(0, i);
+    auto idx2 = atomIndex12Angular(1, i);
+    auto idx_j = atomIndex12Angular(0, i + vectors12.rows() / 2);
+    auto idx_k = atomIndex12Angular(1, i + vectors12.rows() / 2);
+
     ArrayXXd der(32, 3);
     for (int ShfZidx = 0; ShfZidx < ShfZ.size(); ShfZidx++) {
       for (int ShfAidx = 0; ShfAidx < ShfA.size(); ShfAidx++) {
         for (int zetaidx = 0; zetaidx < zeta.size(); zetaidx++) {
           for (int etaAidx = 0; etaAidx < etaA.size(); etaAidx++) {
             auto expTerm = std::exp(-etaA(etaAidx) * std::pow((Rij + Rik)/2 - ShfA(ShfAidx), 2));
-            auto term1 = 1;
-            term1 *= zeta(zetaidx) *
-                     std::pow(std::cos(thetaijk - ShfZ(ShfZidx)) + 1,
-                              zeta(zetaidx) - 1) *
-                     std::sin(thetaijk - ShfZ(ShfZidx));
-            auto cutoff_ij = 0.5 * (std::cos(M_PI * Rij / cutoff) + 1);
-            auto cutoff_ik = 0.5 * (std::cos(M_PI * Rik / cutoff) + 1);
-            term1 *= (cutoff_ij * cutoff_ik) / (Rij * Rik);
-            auto vectorij = 0.95 * vecij * (1 - dotProduct / (Rij * Rij));
-            auto vectorik = 0.95 * vecik * (1 - dotProduct / (Rik * Rik));
-            auto part1 = term1 * (vectorij + vectorik) /
-                         std::sqrt(1 - std::pow(std::cos(thetaijk), 2)) * expTerm;
-            auto part2 = M_PI * std::pow((std::cos(thetaijk - ShfZ(ShfZidx)) + 1), zeta(zetaidx)) * cutoff_ij * std::sin(M_PI * Rik / cutoff) * vecik * expTerm / (2 * cutoff * Rik);
-            auto part3 = M_PI * std::pow((std::cos(thetaijk - ShfZ(ShfZidx)) + 1), zeta(zetaidx)) * cutoff_ik * std::sin(M_PI * Rij / cutoff) * vecij * expTerm / (2 * cutoff * Rij);
-            auto part4 = - etaA(etaAidx) * std::pow((std::cos(thetaijk - ShfZ(ShfZidx)) + 1), zeta(zetaidx)) * cutoff_ij * cutoff_ik * ((Rij + Rik) / 2 - ShfA(ShfAidx)) * (- 1 * (vecik / Rik) - (vecij / Rij)) * expTerm;
-            der.row(idx) << std::pow(2, 1 - zeta(zetaidx)) * (part1 + part2 + part3 + part4);
+            auto term1 = 0.95 * (zeta(zetaidx)/(Rij * Rik)) * cutoff_ij * cutoff_ik;
+            term1 *= (std::pow(std::cos(thetaijk - ShfZ(ShfZidx) + 1), zeta(zetaidx) - 1) * std::sin(thetaijk - ShfZ(ShfZidx)) * expTerm);
+            auto vec = vecij * (1 - dotProduct / (Rij * Rij)) + vecik * (1 - dotProduct / (Rik * Rik));
+            auto part1 = term1 * vec;
+            auto part2 = M_PI * vecik * expTerm * cutoff_ij * std::sin(M_PI * Rik / cutoff) * std::pow(std::cos(thetaijk - ShfZ(ShfZidx)), zeta(zetaidx)) / (2 * cutoff * Rik);
+            auto part3 = M_PI * vecij * expTerm * cutoff_ik * std::sin(M_PI * Rij / cutoff) * std::pow(std::cos(thetaijk - ShfZ(ShfZidx)), zeta(zetaidx)) / (2 * cutoff * Rij);
+            auto part4 = etaA(etaAidx) * ((vecik / Rik) + (vecij / Rij)) * ((Rij + Rik) / 2 - ShfA(ShfAidx)) * expTerm * cutoff_ik * cutoff_ij *  std::pow(std::cos(thetaijk - ShfZ(ShfZidx)), zeta(zetaidx));
+            // std::cout << std::pow(2, 1 - zeta(zetaidx)) * (part1 - part2 - part3 - part4) << std::endl;
+            // std::cout << "Part 1 " << part1 << std::endl;
+            // std::cout << "Part 2 " << part2 << std::endl;
+            // std::cout << "Part 3 " << part3 << std::endl;
+            // std::cout << "Part 4 " << part4 << std::endl;
+            der.row(idx) << (std::pow(2, 1 - zeta(zetaidx)) * (part1 - part2 - part3 - part4)).array();
             idx++;
           }
         }

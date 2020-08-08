@@ -62,7 +62,40 @@ TEST_CASE("ANI-1ccx NN Forward Pass", "[ANI Force Field]") {
     CHECK(field.calcEnergy(pos) == (-40.0553_a).margin(0.05));
     double *grad;
     grad = new double[numAtoms * 3];
-    field.calcGrad(pos, grad);
+
+    for (int i = 0; i < 50; i++) {
+      field.calcGrad(pos, grad);
+      for (int j = 0; j < numAtoms; j++) {
+        std::cout << grad[3 * j] << " " << grad[3 * j + 1] << " " << grad[3 * j + 2] << std::endl;
+        double *acc;
+        acc = new double[3];
+        for (int k = 0; k < 3; k++) {
+          if (speciesVec(i) == 0) {
+            acc[k] = grad[3 * j + k];
+          }
+          else if (speciesVec(i) == 1) {
+            acc[k] = grad[3 * j + k] / 12;
+          }
+          else if (speciesVec(i) == 2) {
+            acc[k] = grad[3 * j + k] / 14;
+          }
+          else if (speciesVec(i) == 3) {
+            acc[k] = grad[3 * j + k] / 16;
+          }
+        }
+
+        pos[3 * j] -= acc[0];
+        pos[3 * j + 1] -= acc[1];
+        pos[3 * j + 2] -= acc[2];  
+      }
+      std::cout << field.calcEnergy(pos) << std::endl;
+      std::cout << "--------------" << std::endl;
+      
+    }
+    // field.calcGrad(pos, grad);
+    // for (int i = 0; i < numAtoms; i++) {
+    //   std::cout << grad[3 * i] << " " << grad[3 * i + 1] << " " << grad[3 * i + 2] << std::endl;
+    // }
   }
   //   SECTION("NH3") {
   //     std::string molFile = dirPath + "NH3.mol";
