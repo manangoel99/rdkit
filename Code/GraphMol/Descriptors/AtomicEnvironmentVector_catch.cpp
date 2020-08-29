@@ -56,7 +56,7 @@ TEST_CASE("Symmetry Function Accuracy", "[Symmetry Function]") {
   std::map<std::string, Eigen::ArrayXXd> params;
   std::string path = getenv("RDBASE");
   std::string paramFilePath =
-      path + "/Code/ForceField/ANI/Params/ANI-1ccx/AEVParams/";
+      path + "/Data/ANIParams/ANI-1ccx/AEVParams/";
 
   // Weights for the radial symmetry functions
   ArrayXd ShfR;
@@ -119,7 +119,9 @@ TEST_CASE("Symmetry Function Accuracy", "[Symmetry Function]") {
     RDKit::ROMOL_SPTR mol(RDKit::MolFileToMol(molFile, true, false));
     int confId = -1;
 
-    auto aev = RDKit::Descriptors::ANI::AtomicEnvironmentVector(*mol, &params, confId);
+    ArrayXXd aev;
+    RDKit::Descriptors::ANI::AtomicEnvironmentVector(aev, *mol, &params,
+                                                     confId);
 
     CHECK(aev.rows() == mol->getNumAtoms());
     CHECK(aev.cols() == 384);
@@ -166,7 +168,9 @@ TEST_CASE("Symmetry Function Accuracy", "[Symmetry Function]") {
     RDKit::ROMOL_SPTR mol(RDKit::MolFileToMol(molFile, true, false));
     int confId = -1;
 
-    auto aev = RDKit::Descriptors::ANI::AtomicEnvironmentVector(*mol, &params, confId);
+    ArrayXXd aev;
+    RDKit::Descriptors::ANI::AtomicEnvironmentVector(aev, *mol, &params,
+                                                     confId);
 
     CHECK(aev.rows() == mol->getNumAtoms());
     CHECK(aev.cols() == 384);
@@ -213,7 +217,9 @@ TEST_CASE("Symmetry Function Accuracy", "[Symmetry Function]") {
     RDKit::ROMOL_SPTR mol(RDKit::MolFileToMol(molFile, false, false));
     int confId = -1;
 
-    auto aev = RDKit::Descriptors::ANI::AtomicEnvironmentVector(*mol, &params, confId);
+    ArrayXXd aev;
+    RDKit::Descriptors::ANI::AtomicEnvironmentVector(aev, *mol, &params,
+                                                     confId);
 
     CHECK(aev.rows() == mol->getNumAtoms());
     CHECK(aev.cols() == 384);

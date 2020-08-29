@@ -31,9 +31,9 @@ void addANIContribs(const ROMol &mol, ForceFields::ForceField *field,
 
   for (unsigned int i = 0; i < numAtoms; i++) {
     auto atom = conf.getAtomPos(i);
-    auto ac = new ForceFields::ANI::ANIAtomContrib(field, speciesVec(i), i,
-                                              speciesVec, numAtoms, numLayers,
-                                              ensembleSize, modelType);
+    auto ac = new ForceFields::ANI::ANIAtomContrib(
+        field, speciesVec(i), i, speciesVec, numAtoms, numLayers, ensembleSize,
+        modelType);
     field->contribs().push_back(ForceFields::ContribPtr(ac));
   }
 }
@@ -47,7 +47,12 @@ ForceFields::ForceField *constructForceField(ROMol &mol, std::string modelType,
   for (unsigned int i = 0; i < mol.getNumAtoms(); i++) {
     res->positions().push_back(&conf.getAtomPos(i));
   }
-  Tools::addANIContribs(mol, res, modelType, 0, ensembleSize, confId);
+  try {
+    Tools::addANIContribs(mol, res, modelType, 0, ensembleSize, confId);
+  } catch (const ValueErrorException &) {
+    delete res;
+    throw;
+  }
   return res;
 }
 

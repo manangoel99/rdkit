@@ -61,7 +61,7 @@ ANIAtomContrib::ANIAtomContrib(ForceField *owner, int atomType,
   // Different values for means of the gaussian symmetry functions
   std::string path = getenv("RDBASE");
   std::string paramFilePath =
-      path + "/Code/ForceField/ANI/Params/" + modelType + "/AEVParams/";
+      path + "/Data/ANIParams/" + modelType + "/AEVParams/";
 
   // Weights for the radial symmetry functions
   ArrayXd ShfR;
@@ -121,8 +121,10 @@ double ANIAtomContrib::forwardProp(ArrayXXd &aev) const {
 }
 
 double ANIAtomContrib::getEnergy(double *pos) const {
-  auto aev = RDKit::Descriptors::ANI::AtomicEnvironmentVector(
-      pos, this->d_speciesVec, this->d_numAtoms, &(this->d_aevParams));
+  PRECONDITION(pos != nullptr, "Positions array is NULL");
+  ArrayXXd aev;
+  RDKit::Descriptors::ANI::AtomicEnvironmentVector(
+      aev, pos, this->d_speciesVec, this->d_numAtoms, &(this->d_aevParams));
   ArrayXXd row = aev.row(this->d_atomIdx);
   return this->ANIAtomContrib::forwardProp(row) + this->d_selfEnergy;
 }
@@ -132,7 +134,43 @@ double ANIAtomContrib::getEnergy(Eigen::ArrayXXd &aev) const {
   return this->ANIAtomContrib::forwardProp(row) + this->d_selfEnergy;
 }
 
-void ANIAtomContrib::getGrad(double *pos, double *grad) const {}
+void ANIAtomContrib::getGrad(double *pos, double *grad) const {
+  PRECONDITION(pos != nullptr, "Positions are null");
+  PRECONDITION(grad != nullptr, "Gradient array is null");
+  double displacement = 1e-5;
+
+  // + - x movement
+  pos[3 * this->d_atomIdx] += displacement;
+  auto posXEnergy = this->dp_forceField->calcEnergy(pos);
+
+  pos[3 * this->d_atomIdx] -= 2 * displacement;
+  auto negXEnergy = this->dp_forceField->calcEnergy(pos);
+
+  grad[3 * this->d_atomIdx] = (posXEnergy - negXEnergy) / (2 * displacement);
+  pos[3 * this->d_atomIdx] += displacement;
+
+  // + - Y movement
+  pos[3 * this->d_atomIdx + 1] += displacement;
+  auto posYEnergy = this->dp_forceField->calcEnergy(pos);
+
+  pos[3 * this->d_atomIdx + 1] -= 2 * displacement;
+  auto negYEnergy = this->dp_forceField->calcEnergy(pos);
+
+  grad[3 * this->d_atomIdx + 1] =
+      (posYEnergy - negYEnergy) / (2 * displacement);
+  pos[3 * this->d_atomIdx + 1] += displacement;
+
+  // + - Z movement
+  pos[3 * this->d_atomIdx + 2] += displacement;
+  auto posZEnergy = this->dp_forceField->calcEnergy(pos);
+
+  pos[3 * this->d_atomIdx + 2] -= 2 * displacement;
+  auto negZEnergy = this->dp_forceField->calcEnergy(pos);
+
+  grad[3 * this->d_atomIdx + 2] =
+      (posZEnergy - negZEnergy) / (2 * displacement);
+  pos[3 * this->d_atomIdx + 2] += displacement;
+}
 
 namespace Utils {
 
@@ -155,8 +193,9 @@ std::vector<std::string> tokenize(const std::string &s) {
 void loadFromBin(std::vector<MatrixXd> *weights, unsigned int model,
                  std::string weightType, unsigned int layer,
                  std::string atomType, std::string modelType) {
+  PRECONDITION(weights != nullptr, "Vector of weights is NULL");
   std::string path = getenv("RDBASE");
-  std::string paramFile = path + "/Code/ForceField/ANI/Params/" + modelType +
+  std::string paramFile = path + "/Data/ANIParams/" + modelType +
                           "/model" + std::to_string(model) + "/" + atomType +
                           "_" + std::to_string(layer) + "_" + weightType +
                           ".bin";
@@ -168,8 +207,10 @@ void loadFromBin(std::vector<MatrixXd> *weights, unsigned int model,
 void loadFromBin(std::vector<MatrixXd> *weights, std::vector<MatrixXd> *biases,
                  unsigned int model, std::string atomType,
                  std::string modelType) {
+  PRECONDITION(weights != nullptr, "Weights array is null");
+  PRECONDITION(biases != nullptr, "Biases array is null");
   std::string path = getenv("RDBASE");
-  std::string paramFile = path + "/Code/ForceField/ANI/Params/" + modelType +
+  std::string paramFile = path + "/Data/ANIParams/" + modelType +
                           "/model" + std::to_string(model) + ".bin";
   std::vector<MatrixXf> floatWeights, floatBiases;
   RDNumeric::EigenSerializer::deserializeAll(&floatWeights, &floatBiases,
@@ -183,8 +224,9 @@ void loadFromBin(std::vector<MatrixXd> *weights, std::vector<MatrixXd> *biases,
 void loadFromCSV(std::vector<MatrixXd> *weights, unsigned int model,
                  std::string weightType, unsigned int layer,
                  std::string atomType, std::string modelType) {
+  PRECONDITION(weights != nullptr, "Weights array is null");
   std::string path = getenv("RDBASE");
-  std::string paramFile = path + "/Code/ForceField/ANI/Params/" + modelType +
+  std::string paramFile = path + "/Data/ANIParams/" + modelType +
                           "/model" + std::to_string(model) + "/" + atomType +
                           "_" + std::to_string(layer) + "_" + weightType;
 
@@ -227,7 +269,7 @@ void loadSelfEnergy(double *energy, std::string atomType,
                     std::string modelType) {
   std::string path = getenv("RDBASE");
   std::string filePath =
-      path + "/Code/ForceField/ANI/Params/" + modelType + "/selfEnergies";
+      path + "/Data/ANIParams/" + modelType + "/selfEnergies";
 
   std::ifstream selfEnergyFile(filePath.c_str());
   if (!selfEnergyFile.good()) {
