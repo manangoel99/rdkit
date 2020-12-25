@@ -18,27 +18,6 @@ using namespace Eigen;
 namespace RDKit {
 namespace Descriptors {
 namespace ANI {
-
-//! Calculates the value a continuous smoothening function for a distance such
-//! that values
-// greater than the cutoff give 0
-/*!
-  \param distances A 2 dimensional array of pairwise distances
-  \param cutoff    A double value signifying cutoff distance
-
-  \return 2 dimensional array containing corresponding values computed by cutoff
-  function
-*/
-template <typename Derived>
-ArrayXXd CosineCutoff(ArrayBase<Derived> *distances, double cutoff) {
-  // Cosine cutoff function assuming all distances are less than the cutoff
-  PRECONDITION(cutoff > 0.0, "Cutoff must be greater than zero");
-  PRECONDITION(((*distances) <= cutoff).count() == distances->size(),
-               "All distances must be less than the cutoff");
-  PRECONDITION(distances != nullptr, "Array of distances is NULL");
-  return 0.5 * ((*distances) * (M_PI / cutoff)).cos() + 0.5;
-}
-
 VectorXi GenerateSpeciesVector(const ROMol &mol) {
   // Generate atom species vector as mentioned in torchani
   // H : 0
@@ -99,51 +78,6 @@ VectorXi GenerateSpeciesVector(const int *atomNums, unsigned int numAtoms) {
   return species;
 }
 
-//! Constructs a vector with values of another vector at specified indices along
-//! given dimension
-/*!
-  \param vector1    Matrix in which values are to be stored
-  \param vector2    Matrix from which values are to be taken
-  \param index      Array which specifies indices of vector2
-  \param dim        dimension along which indices are to be picked
-
-  \return Matrix containing values at positions specified by index in vector2
-*/
-template <typename Derived>
-void IndexSelect(ArrayBase<Derived> *vector1, ArrayBase<Derived> *vector2,
-                 ArrayXi &index, unsigned int dim) {
-  PRECONDITION(vector1 != nullptr && vector2 != nullptr,
-               "Input vectors are NULL");
-  PRECONDITION(dim == 0 || dim == 1,
-               "Only values 0 and 1 are accepted for dim");
-  for (auto i = 0; i < index.size(); i++) {
-    switch (dim) {
-      case 0:
-        vector1->row(i) = vector2->row(index(i));
-        break;
-      case 1:
-        vector1->col(i) = vector2->col(index(i));
-        break;
-      default:
-        throw ValueErrorException("Value of dim must be 0 or 1");
-    }
-  }
-}
-
-//! Computes pairs of atoms that are neighbors bypassing duplication to make
-//! calculation faster
-/*!
-  \param coordinates  A matrix of size atoms * 3 containing coordinates of each
-  atom
-  \param species      A vector of size atoms containing mapping from atom
-  index to encoding
-  \param cutoff       Maximum distance within which 2 atoms
-  are considered to be neighbours
-  \param atomIndex12  Array in which each column represents pairs of atoms
-
-  \return 2 dimensional array with 2 rows with each column corresponding to a
-  pair of atoms which are neighbours
-*/
 void NeighborPairs(ArrayXXd *coordinates, const VectorXi *species,
                    double cutoff, unsigned int numAtoms, ArrayXi *atomIndex12) {
   PRECONDITION(coordinates != nullptr, "Coordinates are NULL");
@@ -664,7 +598,6 @@ ArrayXXd AtomicEnvironmentVector(
   auto index12 = (atomIndex12Unflattened * 4 + species12Flipped).transpose();
   ArrayXXd RadialTerms_;
   RadialTerms(5.2, distances, RadialTerms_, params);
-
   ArrayXXd radialAEV = ArrayXXd::Zero(4 * numAtoms, 16);
   IndexAdd(radialAEV, RadialTerms_, index12, 4, numAtoms);
 
